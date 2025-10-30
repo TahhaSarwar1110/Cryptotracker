@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tahha AI Enginner - Task</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { transition: background-color 0.3s, color 0.3s; }
+    .chart-container { height: 300px; }
+    @media (max-width: 640px) { .chart-container { height: 200px; } }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-black text-gray-900 dark:text-gray-100 transition-all duration-300">
+
+  <!-- Header -->
+  <header class="bg-white dark:bg-gray-800 shadow-lg">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <h1 class="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+        Tahha AI Enginner - Task
+      </h1>
+      <div class="flex items-center gap-4">
+        <!-- Search -->
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search coin..."
+          class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-64"
+        />
+        <!-- Filter -->
+        <select id="filterSelect" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="all">All</option>
+          <option value="gainers">Gainers</option>
+          <option value="losers">Losers</option>
+        </select>
+        <!-- Dark Mode Toggle -->
+        <button id="themeToggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+          <span id="themeIcon">Dark Mode</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Coin List -->
+    <div id="coinList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div class="animate-pulse">
+        <div class="bg-gray-200 dark:bg-gray-700 h-32 rounded-xl"></div>
+      </div>
+      <!-- Filled by JS -->
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50 p-4">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-screen overflow-y-auto p-6 relative">
+        <button id="closeModal" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl">&times;</button>
+        <div id="modalContent"></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // === STATE ===
+    let coins = [];
+    let chartInstance = null;
+    const COINGECKO_API = 'https://api.coingecko.com/api/v3';
+    const VANRY_ID = 'vanry';
+
+    // === DOM Elements ===
+    const coinList = document.getElementById('coinList');
+    const searchInput = document.getElementById('searchInput');
+    const filterSelect = document.getElementById('filterSelect');
+    const themeToggle = document.getElementById('themeToggle');
+    const themeIcon = document.getElementById('themeIcon');
+    const detailModal = document.getElementById('detailModal');
+    const modalContent = document.getElementById('modalContent');
+    const closeModal = document.getElementById('closeModal');
+
+    // === Fetch Top 250 Coins + Ensure Vanry First ===
+    async function fetchCoins() {
+      try {
+        console.log('Fetching coins...');
+        coinList.innerHTML = Array(12).fill().map(() => `
+          <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md animate-pulse">
+            <div class="h-6 bg-gray-300 dark:bg-gray-600 rounded w-3/4 mb-2"></div>
+            <div class="h-4 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
+          </div>
+        `).join('');
+
+        const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false`);
+        if (!response.ok) throw new Error(`API Error: ${response.status} - ${response.statusText}`);
+        let data = await response.json();
+
+        // Ensure Vanry is included and moved to top
+        const vanryIndex = data.findIndex(c => c.id === VANRY_ID);
+        let vanryCoin = null;
+        if (vanryIndex !== -1) {
+          vanryCoin = data.splice(vanryIndex, 1)[0];
+        } else {
+          // Fallback: fetch Vanry separately using markets endpoint
+          console.log('Fetching Vanry fallback...');
+          const vanryRes = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&ids=${VANRY_ID}&order=market_cap_desc&per_page=1&page=1&sparkline=false`);
+          if (!vanryRes.ok) throw new Error(`Vanry Fetch Error: ${vanryRes.status} - ${vanryRes.statusText}`);
+          const vanryData = await vanryRes.json();
+          if (vanryData.length > 0) {
+            vanryCoin = vanryData[0];
+          } else {
+            console.warn('Vanry not found even in fallback');
+          }
+        }
+
+        // Insert Vanry at position 0
+        if (vanryCoin) {
+          data.unshift(vanryCoin);
+          console.log('Vanry pinned to #1');
+        }
+
+        coins = data.slice(0, 250); // Limit to 250
+        renderCoins();
+        console.log('Data loaded successfully:', coins.length, 'coins');
+      } catch (err) {
+        console.error('Fetch error:', err);
+        coinList.innerHTML = `
+          <div class="col-span-full text-center py-12">
+            <p class="text-red-500 text-lg mb-4">Failed to load data: ${err.message}</p>
+            <p class="text-gray-500 mb-6">Check your internet or try again.</p>
+            <button onclick="fetchCoins()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Retry Now</button>
+          </div>
+        `;
+      }
+    }
+
+    // === Render Coin Cards ===
+    function renderCoins() {
+      const search = searchInput.value.toLowerCase();
+      const filter = filterSelect.value;
+
+      let filtered = coins.filter(coin => {
+        const matchesSearch = coin.name.toLowerCase().includes(search) || coin.symbol.toLowerCase().includes(search);
+        if (!matchesSearch) return false;
+        if (filter === 'gainers') return coin.price_change_percentage_24h > 0;
+        if (filter === 'losers') return coin.price_change_percentage_24h < 0;
+        return true;
+      });
+
+      coinList.innerHTML = filtered.map(coin => {
+        const change = coin.price_change_percentage_24h?.toFixed(2) || '0.00';
+        const isPositive = change > 0;
+        return `
+          <div
+            onclick="showDetail('${coin.id}')"
+            class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1 border border-gray-200 dark:border-gray-700 ${coin.id === VANRY_ID ? 'ring-2 ring-blue-500' : ''}"
+          >
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-3">
+                <img src="${coin.image}" alt="${coin.name}" class="w-10 h-10 rounded-full object-contain bg-white p-1 shadow">
+                <div>
+                  <h3 class="font-bold text-lg">${coin.symbol.toUpperCase()}/USDT</h3>
+                  <p class="text-xs text-gray-500 dark:text-gray-400">${coin.name}</p>
+                </div>
+              </div>
+              ${coin.id === VANRY_ID ? '<span class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">Featured</span>' : ''}
+            </div>
+            <div class="text-right">
+              <p class="text-2xl font-bold">$${coin.current_price?.toLocaleString() || 'N/A'}</p>
+              <p class="${isPositive ? 'text-green-600' : 'text-red-600'} text-sm font-medium">
+                ${isPositive ? 'Up' : 'Down'} ${Math.abs(change)}%
+              </p>
+            </div>
+          </div>
+        `;
+      }).join('') || '<p class="text-center col-span-full text-gray-500">No coins found.</p>';
+    }
+
+    // === Show Detail Modal with Chart ===
+    async function showDetail(coinId) {
+      const coin = coins.find(c => c.id === coinId);
+      if (!coin) return;
+
+      modalContent.innerHTML = `
+        <div class="flex items-center gap-4 mb-6">
+          <img src="${coin.image}" alt="${coin.name}" class="w-16 h-16 rounded-full">
+          <div>
+            <h2 class="text-2xl font-bold">${coin.name} (${coin.symbol.toUpperCase()}/USDT)</h2>
+            <p class="text-3xl font-bold mt-1">$${coin.current_price?.toLocaleString() || 'N/A'}</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+            <p class="text-gray-500 dark:text-gray-400">24h Change</p>
+            <p class="${coin.price_change_percentage_24h > 0 ? 'text-green-600' : 'text-red-600'} font-bold">
+              ${coin.price_change_percentage_24h?.toFixed(2) || '0.00'}%
+            </p>
+          </div>
+          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+            <p class="text-gray-500 dark:text-gray-400">Market Cap</p>
+            <p class="font-bold">$${coin.market_cap?.toLocaleString() || 'N/A'}</p>
+          </div>
+          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+            <p class="text-gray-500 dark:text-gray-400">Volume (24h)</p>
+            <p class="font-bold">$${coin.total_volume?.toLocaleString() || 'N/A'}</p>
+          </div>
+          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+            <p class="text-gray-500 dark:text-gray-400">ATH</p>
+            <p class="font-bold">$${coin.ath?.toFixed(4) || 'N/A'}</p>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="priceChart"></canvas>
+        </div>
+      `;
+
+      detailModal.classList.remove('hidden');
+
+      // Fetch 30-day history
+      try {
+        console.log(`Fetching chart for ${coinId}...`);
+        const historyRes = await fetch(`${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=usd&days=30`);
+        if (!historyRes.ok) throw new Error(`Chart Error: ${historyRes.status}`);
+        const history = await historyRes.json();
+        const prices = history.prices.map(p => ({ x: new Date(p[0]).toLocaleDateString(), y: p[1] }));
+
+        const ctx = document.getElementById('priceChart').getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+
+        chartInstance = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: prices.map(p => p.x),
+            datasets: [{
+              label: 'Price (USDT)',
+              data: prices.map(p => p.y),
+              borderColor: '#3B82F6',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.3,
+              pointRadius: 0,
+              pointHoverRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { display: false },
+              y: { beginAtZero: false }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Chart error:', err);
+        modalContent.innerHTML += `<p class="text-red-500 text-center mt-4">Chart failed to load: ${err.message}</p>`;
+      }
+    }
+
+    // === Event Listeners ===
+    searchInput.addEventListener('input', renderCoins);
+    filterSelect.addEventListener('change', renderCoins);
+    closeModal.addEventListener('click', () => detailModal.classList.add('hidden'));
+    detailModal.addEventListener('click', (e) => {
+      if (e.target === detailModal) detailModal.classList.add('hidden');
+    });
+
+    // === Dark Mode Toggle ===
+    // === Dark Mode Toggle (Fixed) ===
+    // === Dark Mode Toggle (FIXED) ===
+    function initTheme() {
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = saved === 'dark' || (!saved && prefersDark);
+      document.documentElement.classList.toggle('dark', isDark);
+      themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+    }
+
+    themeToggle.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+    });
+
+    window.addEventListener('load', initTheme);
+
+    // === Start App ===
+    initTheme();
+    fetchCoins();
+
+    // Auto-refresh every 60s
+    setInterval(fetchCoins, 60000);
+  </script>
+</body>
+</html>

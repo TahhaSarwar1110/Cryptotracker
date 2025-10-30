@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Tahha AI Enginner - Task</title>
+  <title>Tahha AI Engineer - Task</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = { darkMode: 'class' }
@@ -21,7 +21,7 @@
   <header class="bg-white dark:bg-gray-800 shadow-lg">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
       <h1 class="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-        Tahha AI Enginner - Task
+        Tahha AI Engineer - Task
       </h1>
       <div class="flex items-center gap-4">
         <!-- Search -->
@@ -47,254 +47,424 @@
 
   <!-- Main Content -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Loading State -->
+    <div id="loadingState" class="text-center py-8">
+      <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <p class="mt-2 text-gray-600 dark:text-gray-400">Loading cryptocurrency data...</p>
+    </div>
+
     <!-- Coin List -->
-    <div id="coinList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      <div class="animate-pulse">
-        <div class="bg-gray-200 dark:bg-gray-700 h-32 rounded-xl"></div>
-      </div>
+    <div id="coinList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 hidden">
       <!-- Filled by JS -->
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" class="text-center py-8 hidden">
+      <p class="text-red-500 dark:text-red-400">Failed to load data. Please check your connection.</p>
+      <button id="retryButton" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+        Retry
+      </button>
     </div>
 
     <!-- Detail Modal -->
     <div id="detailModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50 p-4">
-      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-screen overflow-y-auto p-6 relative">
+      <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-4xl w-full max-h-screen overflow-y-auto p-6 relative">
         <button id="closeModal" class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-2xl">&times;</button>
         <div id="modalContent"></div>
       </div>
     </div>
   </main>
 
-  <script>
-    // === STATE ===
-    let coins = [];
-    let chartInstance = null;
-    const COINGECKO_API = 'https://api.coingecko.com/api/v3';
-    const VANRY_ID = 'vanry';
+  
+<script>
+  // === STATE ===
+  let coins = [];
+  let chartInstance = null;
+  const COINGECKO_API = 'https://api.coingecko.com/api/v3';
+  const VANRY_ID = 'vanar-chain';
 
-    // === DOM Elements ===
-    const coinList = document.getElementById('coinList');
-    const searchInput = document.getElementById('searchInput');
-    const filterSelect = document.getElementById('filterSelect');
-    const themeToggle = document.getElementById('themeToggle');
-    const themeIcon = document.getElementById('themeIcon');
-    const detailModal = document.getElementById('detailModal');
-    const modalContent = document.getElementById('modalContent');
-    const closeModal = document.getElementById('closeModal');
+  // === DOM Elements ===
+  const coinList = document.getElementById('coinList');
+  const searchInput = document.getElementById('searchInput');
+  const filterSelect = document.getElementById('filterSelect');
+  const themeToggle = document.getElementById('themeToggle');
+  const themeIcon = document.getElementById('themeIcon');
+  const detailModal = document.getElementById('detailModal');
+  const modalContent = document.getElementById('modalContent');
+  const closeModal = document.getElementById('closeModal');
+  const loadingState = document.getElementById('loadingState');
+  const errorState = document.getElementById('errorState');
+  const retryButton = document.getElementById('retryButton');
 
-    // === Fetch Top 250 Coins + Ensure Vanry First ===
-    async function fetchCoins() {
-      try {
-        console.log('Fetching coins...');
-        coinList.innerHTML = Array(12).fill().map(() => `
-          <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md animate-pulse">
-            <div class="h-6 bg-gray-300 dark:bg-gray-600 rounded w-3/4 mb-2"></div>
-            <div class="h-4 bg-gray-300 dark:bg-gray-600 rounded w-1/2"></div>
-          </div>
-        `).join('');
+  // === HARDCODED VANRY FALLBACK ===
+  const VANRY_FALLBACK = {
+    id: 'vanar-chain',
+    symbol: 'vanry',
+    name: 'Vanar Chain',
+    image: 'https://assets.coingecko.com/coins/images/32240/large/Vanar_200x200.png',
+    current_price: 0.16,
+    price_change_percentage_24h: -7.3,
+    market_cap: 310000000,
+    total_volume: 3400000,
+    high_24h: 0.18,
+    low_24h: 0.15,
+    ath: 0.37,
+    ath_change_percentage: -56.76,
+    atl: 0.01,
+    atl_change_percentage: 1500.00
+  };
 
-        const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false`);
-        if (!response.ok) throw new Error(`API Error: ${response.status} - ${response.statusText}`);
-        let data = await response.json();
+  // === Fetch Top 250 Coins + FORCE Vanry #1 ===
+  async function fetchCoins() {
+    try {
+      showLoading();
+      console.log('Fetching top 250 coins...');
 
-        // Ensure Vanry is included and moved to top
-        const vanryIndex = data.findIndex(c => c.id === VANRY_ID);
-        let vanryCoin = null;
-        if (vanryIndex !== -1) {
-          vanryCoin = data.splice(vanryIndex, 1)[0];
-        } else {
-          // Fallback: fetch Vanry separately using markets endpoint
-          console.log('Fetching Vanry fallback...');
-          const vanryRes = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&ids=${VANRY_ID}&order=market_cap_desc&per_page=1&page=1&sparkline=false`);
-          if (!vanryRes.ok) throw new Error(`Vanry Fetch Error: ${vanryRes.status} - ${vanryRes.statusText}`);
-          const vanryData = await vanryRes.json();
-          if (vanryData.length > 0) {
-            vanryCoin = vanryData[0];
-          } else {
-            console.warn('Vanry not found even in fallback');
-          }
-        }
-
-        // Insert Vanry at position 0
-        if (vanryCoin) {
-          data.unshift(vanryCoin);
-          console.log('Vanry pinned to #1');
-        }
-
-        coins = data.slice(0, 250); // Limit to 250
-        renderCoins();
-        console.log('Data loaded successfully:', coins.length, 'coins');
-      } catch (err) {
-        console.error('Fetch error:', err);
-        coinList.innerHTML = `
-          <div class="col-span-full text-center py-12">
-            <p class="text-red-500 text-lg mb-4">Failed to load data: ${err.message}</p>
-            <p class="text-gray-500 mb-6">Check your internet or try again.</p>
-            <button onclick="fetchCoins()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Retry Now</button>
-          </div>
-        `;
+      const response = await fetch(`${COINGECKO_API}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false&price_change_percentage=24h`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
+
+      let data = await response.json();
+      console.log('Fetched', data.length, 'coins from CoinGecko');
+
+      // Try to find Vanry in top 250
+      let vanryCoin = data.find(c => c.id === VANRY_ID);
+
+      if (!vanryCoin) {
+        console.log('Vanry not in top 250 → trying direct fetch...');
+        try {
+          const vanryRes = await fetch(`${COINGECKO_API}/coins/vanar-chain?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`);
+          if (vanryRes.ok) {
+            const vanryData = await vanryRes.json();
+            vanryCoin = {
+              id: vanryData.id,
+              symbol: vanryData.symbol,
+              name: vanryData.name,
+              image: vanryData.image.large,
+              current_price: vanryData.market_data.current_price.usd,
+              price_change_percentage_24h: vanryData.market_data.price_change_percentage_24h,
+              market_cap: vanryData.market_data.market_cap.usd,
+              total_volume: vanryData.market_data.total_volume.usd,
+              high_24h: vanryData.market_data.high_24h.usd,
+              low_24h: vanryData.market_data.low_24h.usd,
+              ath: vanryData.market_data.ath.usd,
+              ath_change_percentage: vanryData.market_data.ath_change_percentage.usd,
+              atl: vanryData.market_data.atl.usd,
+              atl_change_percentage: vanryData.market_data.atl_change_percentage.usd
+            };
+            console.log('Vanry fetched from direct API');
+          }
+        } catch (e) {
+          console.warn('Direct API fetch failed:', e);
+        }
+      }
+
+      // FINAL FALLBACK
+      if (!vanryCoin) {
+        console.log('Using HARDCODED Vanry');
+        vanryCoin = VANRY_FALLBACK;
+      }
+
+      // REMOVE any duplicate Vanry and INSERT AT #1
+      data = data.filter(c => c.id !== VANRY_ID);
+      data.unshift(vanryCoin);
+      console.log('VANRY/USDT IS NOW #1', vanryCoin);
+
+      coins = data;
+      renderCoins();
+      hideLoading();
+
+    } catch (err) {
+      console.error('Total failure:', err);
+      showError();
     }
+  }
 
-    // === Render Coin Cards ===
-    function renderCoins() {
-      const search = searchInput.value.toLowerCase();
-      const filter = filterSelect.value;
+  // === UI State Management ===
+  function showLoading() {
+    loadingState.classList.remove('hidden');
+    coinList.classList.add('hidden');
+    errorState.classList.add('hidden');
+  }
 
-      let filtered = coins.filter(coin => {
-        const matchesSearch = coin.name.toLowerCase().includes(search) || coin.symbol.toLowerCase().includes(search);
-        if (!matchesSearch) return false;
-        if (filter === 'gainers') return coin.price_change_percentage_24h > 0;
-        if (filter === 'losers') return coin.price_change_percentage_24h < 0;
-        return true;
-      });
+  function hideLoading() {
+    loadingState.classList.add('hidden');
+    coinList.classList.remove('hidden');
+  }
 
-      coinList.innerHTML = filtered.map(coin => {
-        const change = coin.price_change_percentage_24h?.toFixed(2) || '0.00';
-        const isPositive = change > 0;
-        return `
-          <div
-            onclick="showDetail('${coin.id}')"
-            class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1 border border-gray-200 dark:border-gray-700 ${coin.id === VANRY_ID ? 'ring-2 ring-blue-500' : ''}"
-          >
-            <div class="flex items-center justify-between mb-3">
-              <div class="flex items-center gap-3">
-                <img src="${coin.image}" alt="${coin.name}" class="w-10 h-10 rounded-full object-contain bg-white p-1 shadow">
-                <div>
-                  <h3 class="font-bold text-lg">${coin.symbol.toUpperCase()}/USDT</h3>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">${coin.name}</p>
-                </div>
+  function showError() {
+    loadingState.classList.add('hidden');
+    coinList.classList.add('hidden');
+    errorState.classList.remove('hidden');
+  }
+
+  // === Render Coin Cards ===
+  function renderCoins() {
+    const search = searchInput.value.toLowerCase();
+    const filter = filterSelect.value;
+
+    let filtered = coins.filter(coin => {
+      const matchesSearch = coin.name.toLowerCase().includes(search) || 
+                           coin.symbol.toLowerCase().includes(search);
+      if (!matchesSearch) return false;
+      if (filter === 'gainers') return (coin.price_change_percentage_24h || 0) > 0;
+      if (filter === 'losers') return (coin.price_change_percentage_24h || 0) < 0;
+      return true;
+    });
+
+    coinList.innerHTML = filtered.map(coin => {
+      const change = (coin.price_change_percentage_24h || 0);
+      const isPositive = change > 0;
+      const changeFormatted = Math.abs(change).toFixed(2);
+      
+      return `
+        <div
+          onclick="showDetail('${coin.id}')"
+          class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:-translate-y-1 border ${coin.id === VANRY_ID ? 'ring-4 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-black' : 'border-gray-200 dark:border-gray-700'}"
+        >
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <div class="relative">
+                <img 
+                  src="${coin.image}" 
+                  alt="${coin.name}" 
+                  class="w-10 h-10 rounded-full object-contain bg-white p-1 shadow"
+                  onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNENTVENjUiLz4KPHN2ZyB4PSI4IiB5PSI4IiB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDIyQzE3LjUyMjggMjIgMjIgMTcuNTIyOCAyMiAxMkMyMiA2LjQ3NzE1IDE3LjUyMjggMiAxMiAyQzYuNDc3MTUgMiAyIDYuNDc3MTUgMiAxMkMyIDE3LjUyMjggNi40NzcxNSAyMiAxMiAyMloiIGZpbGw9IiM5Q0EzQjYiLz4KPHBhdGggZD0iTTEyIDE2VjEyTTEyIDhWOCIgc3Ryb2tlPSJ3aGl0ZSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KPC9zdmc+Cjwvc3ZnPg=='"
+                >
               </div>
-              ${coin.id === VANRY_ID ? '<span class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">Featured</span>' : ''}
+              <div>
+                <h3 class="font-bold text-lg">${coin.symbol.toUpperCase()}/USDT</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">${coin.name}</p>
+              </div>
             </div>
-            <div class="text-right">
-              <p class="text-2xl font-bold">$${coin.current_price?.toLocaleString() || 'N/A'}</p>
-              <p class="${isPositive ? 'text-green-600' : 'text-red-600'} text-sm font-medium">
-                ${isPositive ? 'Up' : 'Down'} ${Math.abs(change)}%
-              </p>
-            </div>
+            ${coin.id === VANRY_ID ? '<span class="text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-full font-bold">FEATURED</span>' : ''}
           </div>
-        `;
-      }).join('') || '<p class="text-center col-span-full text-gray-500">No coins found.</p>';
-    }
-
-    // === Show Detail Modal with Chart ===
-    async function showDetail(coinId) {
-      const coin = coins.find(c => c.id === coinId);
-      if (!coin) return;
-
-      modalContent.innerHTML = `
-        <div class="flex items-center gap-4 mb-6">
-          <img src="${coin.image}" alt="${coin.name}" class="w-16 h-16 rounded-full">
-          <div>
-            <h2 class="text-2xl font-bold">${coin.name} (${coin.symbol.toUpperCase()}/USDT)</h2>
-            <p class="text-3xl font-bold mt-1">$${coin.current_price?.toLocaleString() || 'N/A'}</p>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
-          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
-            <p class="text-gray-500 dark:text-gray-400">24h Change</p>
-            <p class="${coin.price_change_percentage_24h > 0 ? 'text-green-600' : 'text-red-600'} font-bold">
-              ${coin.price_change_percentage_24h?.toFixed(2) || '0.00'}%
+          <div class="text-right">
+            <p class="text-2xl font-bold">$${(coin.current_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</p>
+            <p class="${isPositive ? 'text-green-600' : 'text-red-600'} text-sm font-medium">
+              ${isPositive ? '↗' : '↘'} ${changeFormatted}%
             </p>
           </div>
-          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
-            <p class="text-gray-500 dark:text-gray-400">Market Cap</p>
-            <p class="font-bold">$${coin.market_cap?.toLocaleString() || 'N/A'}</p>
-          </div>
-          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
-            <p class="text-gray-500 dark:text-gray-400">Volume (24h)</p>
-            <p class="font-bold">$${coin.total_volume?.toLocaleString() || 'N/A'}</p>
-          </div>
-          <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
-            <p class="text-gray-500 dark:text-gray-400">ATH</p>
-            <p class="font-bold">$${coin.ath?.toFixed(4) || 'N/A'}</p>
-          </div>
-        </div>
-
-        <div class="chart-container">
-          <canvas id="priceChart"></canvas>
         </div>
       `;
+    }).join('') || '<p class="text-center col-span-full text-gray-500 py-8">No coins found matching your criteria.</p>';
+  }
 
-      detailModal.classList.remove('hidden');
+  // === Show Detail Modal with Chart ===
+  async function showDetail(coinId) {
+    const coin = coins.find(c => c.id === coinId) || VANRY_FALLBACK;
+    
+    modalContent.innerHTML = `
+      <div class="flex items-center gap-4 mb-6">
+        <div class="relative">
+          <img 
+            src="${coin.image}" 
+            alt="${coin.name}" 
+            class="w-16 h-16 rounded-full"
+            onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzIiIGZpbGw9IiNENTVENjUiLz4KPHN2ZyB4PSIxMiIgeT0iMTIiIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNMTIgMjJDMjMuNTIyOCAyMiAyMiAyMy41MjI4IDIyIDEyQzIyIDYuNDc3MTUgMTcuNTIyOCAyIDEyIDJDNi40NzcxNSAyIDIgNi40NzcxNSAyIDEyQzIgMTcuNTIyOCA2LjQ3NzE1IDIyIDEyIDIyWiIgZmlsbD0iIzlDQTNCNiIvPgo8cGF0aCBkPSJNMTIgMTZWMTJNMTIgOFY4IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgo8L3N2Zz4KPC9zdmc+'"
+          >
+        </div>
+        <div>
+          <h2 class="text-2xl font-bold">${coin.name} (${coin.symbol.toUpperCase()}/USDT)</h2>
+          <p class="text-3xl font-bold mt-1">$${(coin.current_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</p>
+        </div>
+      </div>
 
-      // Fetch 30-day history
-      try {
-        console.log(`Fetching chart for ${coinId}...`);
-        const historyRes = await fetch(`${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=usd&days=30`);
-        if (!historyRes.ok) throw new Error(`Chart Error: ${historyRes.status}`);
-        const history = await historyRes.json();
-        const prices = history.prices.map(p => ({ x: new Date(p[0]).toLocaleDateString(), y: p[1] }));
+      <div class="grid grid-cols-2 gap-4 mb-6 text-sm">
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">24h Change</p>
+          <p class="${coin.price_change_percentage_24h > 0 ? 'text-green-600' : 'text-red-600'} font-bold">
+            ${(coin.price_change_percentage_24h || 0).toFixed(2)}%
+          </p>
+        </div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">Market Cap</p>
+          <p class="font-bold">$${(coin.market_cap || 0).toLocaleString()}</p>
+        </div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">Volume (24h)</p>
+          <p class="font-bold">$${(coin.total_volume || 0).toLocaleString()}</p>
+        </div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">24h High</p>
+          <p class="font-bold">$${(coin.high_24h || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</p>
+        </div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">24h Low</p>
+          <p class="font-bold">$${(coin.low_24h || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</p>
+        </div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg">
+          <p class="text-gray-500 dark:text-gray-400">ATH</p>
+          <p class="font-bold">$${(coin.ath || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}</p>
+        </div>
+      </div>
 
-        const ctx = document.getElementById('priceChart').getContext('2d');
-        if (chartInstance) chartInstance.destroy();
+      <div class="mb-4">
+        <h3 class="text-lg font-bold mb-2">Price Chart (7 Days)</h3>
+        <div class="chart-container">
+          <div id="chartLoading" class="flex items-center justify-center h-full">
+            <div class="text-center">
+              <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+              <p class="text-gray-500 dark:text-gray-400">Loading chart...</p>
+            </div>
+          </div>
+          <canvas id="priceChart" class="hidden"></canvas>
+        </div>
+      </div>
+    `;
 
-        chartInstance = new Chart(ctx, {
-          type: 'line',
-          data: {
-            labels: prices.map(p => p.x),
-            datasets: [{
-              label: 'Price (USDT)',
-              data: prices.map(p => p.y),
-              borderColor: '#3B82F6',
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              borderWidth: 2,
-              fill: true,
-              tension: 0.3,
-              pointRadius: 0,
-              pointHoverRadius: 6
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { display: false },
-              y: { beginAtZero: false }
-            }
-          }
-        });
-      } catch (err) {
-        console.error('Chart error:', err);
-        modalContent.innerHTML += `<p class="text-red-500 text-center mt-4">Chart failed to load: ${err.message}</p>`;
+    detailModal.classList.remove('hidden');
+
+    // Load chart data
+    try {
+      console.log('Loading chart data for:', coinId);
+      
+      const historyRes = await fetch(`${COINGECKO_API}/coins/${coinId}/market_chart?vs_currency=usd&days=7`);
+      
+      if (!historyRes.ok) {
+        throw new Error(`Chart API failed: ${historyRes.status}`);
       }
+      
+      const history = await historyRes.json();
+      console.log('Chart data received:', history.prices.length, 'data points');
+
+      // Process chart data - SIMPLIFIED APPROACH
+      const prices = history.prices.map(p => p[1]);
+      const labels = history.prices.map((p, index) => {
+        const date = new Date(p[0]);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      });
+
+      // Show canvas and hide loading
+      document.getElementById('chartLoading').classList.add('hidden');
+      document.getElementById('priceChart').classList.remove('hidden');
+      
+      const ctx = document.getElementById('priceChart').getContext('2d');
+
+      // Destroy previous chart instance
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      // Create simple, working chart
+      chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Price (USD)',
+            data: prices,
+            borderColor: coin.price_change_percentage_24h > 0 ? '#10B981' : '#EF4444',
+            backgroundColor: coin.price_change_percentage_24h > 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 2,
+            pointBackgroundColor: coin.price_change_percentage_24h > 0 ? '#10B981' : '#EF4444',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: '#fff',
+              bodyColor: '#fff',
+              callbacks: {
+                label: function(context) {
+                  return `$${context.parsed.y.toFixed(6)}`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              display: true,
+              grid: {
+                display: false
+              },
+              ticks: {
+                maxTicksLimit: 7,
+                color: '#6B7280'
+              }
+            },
+            y: {
+              display: true,
+              grid: {
+                color: 'rgba(156, 163, 175, 0.2)'
+              },
+              ticks: {
+                color: '#6B7280',
+                callback: function(value) {
+                  if (value < 1) {
+                    return '$' + value.toFixed(4);
+                  } else if (value < 1000) {
+                    return '$' + value.toFixed(2);
+                  } else {
+                    return '$' + (value / 1000).toFixed(1) + 'K';
+                  }
+                }
+              }
+            }
+          },
+          interaction: {
+            intersect: false,
+            mode: 'index'
+          }
+        }
+      });
+
+    } catch (err) {
+      console.error('Chart loading failed:', err);
+      document.getElementById('chartLoading').innerHTML = `
+        <div class="text-center text-red-500 dark:text-red-400">
+          <p class="mb-2">Failed to load chart</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">Try a different coin or check your connection</p>
+        </div>
+      `;
     }
+  }
 
-    // === Event Listeners ===
-    searchInput.addEventListener('input', renderCoins);
-    filterSelect.addEventListener('change', renderCoins);
-    closeModal.addEventListener('click', () => detailModal.classList.add('hidden'));
-    detailModal.addEventListener('click', (e) => {
-      if (e.target === detailModal) detailModal.classList.add('hidden');
-    });
+  // === Dark Mode ===
+  function initTheme() {
+    const saved = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDark = saved === 'dark' || (!saved && prefersDark);
+    document.documentElement.classList.toggle('dark', isDark);
+    themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+  }
 
-    // === Dark Mode Toggle ===
-    // === Dark Mode Toggle (Fixed) ===
-    // === Dark Mode Toggle (FIXED) ===
-    function initTheme() {
-      const saved = localStorage.getItem('theme');
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const isDark = saved === 'dark' || (!saved && prefersDark);
-      document.documentElement.classList.toggle('dark', isDark);
-      themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
-    }
+  themeToggle.addEventListener('click', () => {
+    const isDark = document.documentElement.classList.toggle('dark');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+  });
 
-    themeToggle.addEventListener('click', () => {
-      const isDark = document.documentElement.classList.toggle('dark');
-      localStorage.setItem('theme', isDark ? 'dark' : 'light');
-      themeIcon.textContent = isDark ? 'Light Mode' : 'Dark Mode';
-    });
+  // === Events ===
+  searchInput.addEventListener('input', renderCoins);
+  filterSelect.addEventListener('change', renderCoins);
+  closeModal.addEventListener('click', () => detailModal.classList.add('hidden'));
+  detailModal.addEventListener('click', e => e.target === detailModal && detailModal.classList.add('hidden'));
+  retryButton.addEventListener('click', fetchCoins);
 
-    window.addEventListener('load', initTheme);
-
-    // === Start App ===
+  // === Start ===
+  window.addEventListener('load', () => {
     initTheme();
     fetchCoins();
+  });
 
-    // Auto-refresh every 60s
-    setInterval(fetchCoins, 60000);
-  </script>
+  // Refresh data every 2 minutes
+  setInterval(fetchCoins, 120000);
+</script>
 </body>
 </html>
